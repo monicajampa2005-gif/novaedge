@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>NovaEdge — Admin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#0c0d0f; --surface:#16181d; --line:rgba(255,255,255,.08); --text:#f2efe8; --muted:#9a9890; --accent:#d7ff3c; --danger:#ff6b5b; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Space Grotesk", system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .wrap { width: min(1200px, 100% - 32px); margin: 0 auto; padding: 40px 0; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; }
+    h1 { font-size: 28px; letter-spacing: -0.03em; } h1 span { color: var(--accent); }
+    .login { max-width: 380px; margin: 18vh auto; padding: 32px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; display: grid; gap: 14px; }
+    input { width: 100%; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; outline: none; }
+    input:focus { border-color: var(--accent); }
+    button, .btn { padding: 12px 20px; border-radius: 999px; border: 0; background: var(--accent); color: #0c0d0f; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+    .btn--ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+    .err { color: var(--danger); font-size: 14px; min-height: 18px; }
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
+    .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+    .kpi strong { font-size: 32px; display: block; letter-spacing: -0.03em; } .kpi span { color: var(--muted); font-size: 14px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tabs button { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+    .tabs button.active { background: var(--text); color: #0c0d0f; }
+    .table { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--surface); }
+    tr:last-child td { border-bottom: 0; }
+    td.msg { max-width: 320px; color: var(--muted); }
+    .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: rgba(255,255,255,.08); }
+    .pill.paid { background: rgba(215,255,60,.15); color: var(--accent); }
+    .pill.signature_failed { background: rgba(255,107,91,.15); color: var(--danger); }
+    .empty { padding: 48px; text-align: center; color: var(--muted); }
+    [hidden] { display: none !important; }
+    @media (max-width: 700px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+  <form class="login" id="login">
+    <h1>Nova<span>Edge</span> admin</h1>
+    <input type="password" id="token" placeholder="Admin token (from .env)" autocomplete="current-password" />
+    <p class="err" id="loginErr"></p>
+    <button type="submit">Open dashboard</button>
+  </form>
+
+  <div class="wrap" id="dash" hidden>
+    <header>
+      <h1>Nova<span>Edge</span> dashboard</h1>
+      <div style="display:flex;gap:8px">
+        <button class="btn--ghost btn" id="refresh">Refresh</button>
+        <a class="btn" id="csv" href="#">Export leads CSV</a>
+        <button class="btn--ghost btn" id="logout">Log out</button>
+      </div>
+    </header>
+    <div class="kpis">
+      <div class="kpi"><strong id="kLeads">0</strong><span>Total leads</span></div>
+      <div class="kpi"><strong id="kToday">0</strong><span>Leads today</span></div>
+      <div class="kpi"><strong id="kPaid">0</strong><span>Successful payments</span></div>
+      <div class="kpi"><strong id="kRev">₹0</strong><span>Revenue (test)</span></div>
+    </div>
+    <div class="tabs"><button class="active" data-tab="leads">Leads</button><button data-tab="payments">Payments</button></div>
+    <div class="table" id="leadsTable"></div>
+    <div class="table" id="paymentsTable" hidden></div>
+  </div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  const fmt = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  let token = sessionStorage.getItem('ne_admin') || '';
+
+  async function api(path) {
+    const r = await fetch(path, { headers: { 'x-admin-token': token } });
+    if (r.status === 401) throw new Error('Wrong token');
+    return r.json();
+  }
+
+  async function load() {
+    const [{ leads }, { payments }] = await Promise.all([api('/api/admin/leads'), api('/api/admin/payments')]);
+    $('#login').hidden = true; $('#dash').hidden = false;
+    const today = new Date().toDateString();
+    const paid = payments.filter((p) => p.status === 'paid');
+    $('#kLeads').textContent = leads.length;
+    $('#kToday').textContent = leads.filter((l) => new Date(l.createdAt).toDateString() === today).length;
+    $('#kPaid').textContent = paid.length;
+    $('#kRev').textContent = '₹' + (paid.reduce((s, p) => s + p.amount, 0) / 100).toLocaleString('en-IN');
+    $('#csv').href = '/api/admin/leads.csv?token=' + encodeURIComponent(token);
+
+    $('#leadsTable').innerHTML = leads.length ? `<table><thead><tr><th>Date</th><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Interest</th><th>Message</th></tr></thead><tbody>${
+      leads.map((l) => `<tr><td>${fmt(l.createdAt)}</td><td>${esc(l.name)}</td><td><a href="mailto:${esc(l.email)}" style="color:inherit">${esc(l.email)}</a></td><td>${esc(l.phone)}</td><td>${esc(l.company)}</td><td>${esc(l.interest)}</td><td class="msg">${esc(l.message)}</td></tr>`).join('')
+    }</tbody></table>` : '<p class="empty">No leads yet.</p>';
+
+    $('#paymentsTable').innerHTML = payments.length ? `<table><thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Customer</th><th>Order ID</th><th>Payment ID</th><th>Status</th></tr></thead><tbody>${
+      payments.map((p) => `<tr><td>${fmt(p.createdAt)}</td><td>${esc(p.planName)}</td><td>₹${(p.amount / 100).toLocaleString('en-IN')}</td><td>${esc(p.customer?.name)}<br><span style="color:var(--muted)">${esc(p.customer?.email)}</span></td><td>${esc(p.orderId)}</td><td>${esc(p.paymentId)}</td><td><span class="pill ${esc(p.status)}">${esc(p.status)}</span></td></tr>`).join('')
+    }</tbody></table>` : '<p class="empty">No payments yet.</p>';
+  }
+
+  $('#login').addEventListener('submit', async (e) => {
+    e.preventDefault(); token = $('#token').value.trim();
+    try { await load(); sessionStorage.setItem('ne_admin', token); } catch (err) { $('#loginErr').textContent = err.message; }
+  });
+  $('#refresh').addEventListener('click', () => load().catch(() => {}));
+  $('#logout').addEventListener('click', () => { sessionStorage.removeItem('ne_admin'); location.reload(); });
+  document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('active', x === b));
+    $('#leadsTable').hidden = b.dataset.tab !== 'leads'; $('#paymentsTable').hidden = b.dataset.tab !== 'payments';
+  }));
+  if (token) load().catch(() => { sessionStorage.removeItem('ne_admin'); });
+})();
+</script>
+</body>
+</html>

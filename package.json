@@ -1,0 +1,18 @@
+{
+  "name": "novaedge-demo",
+  "version": "1.0.0",
+  "description": "Animated website with lead capture backend and Razorpay payment gateway (Node.js + Express)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "razorpay": "^2.9.5"
+  }
+}
